@@ -1,0 +1,94 @@
+openapi: 3.0.3
+info:
+  title: Trade Service — extracted slice (Trade Capture and Validation)
+  version: 1.0.0
+  description: >
+    Contract for the slice extracted from the legacy platform. Additive changes only within v1;
+    breaking changes ship as /api/v2 with a 12-month deprecation window.
+servers:
+  - url: http://localhost:8080
+paths:
+  /api/v1/trades:
+    post:
+      summary: Submit a trade (pipeline runs; posts, or parks for approval)
+      parameters: [ { $ref: '#/components/parameters/Tenant' } ]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/TradeRequest' } } }
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/Trade' } } } }
+        '400': { $ref: '#/components/responses/Problem' }
+        '422': { description: Rejected by validation, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+    get:
+      summary: List the tenant's latest trades
+      parameters: [ { $ref: '#/components/parameters/Tenant' } ]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Trade' } } } } }
+  /api/v1/trades/simulate:
+    post:
+      summary: Dry run (nothing persisted or published)
+      parameters: [ { $ref: '#/components/parameters/Tenant' } ]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/TradeRequest' } } }
+      responses:
+        '200': { description: Outcome }
+  /api/v1/trades/{id}:
+    get:
+      summary: Get a trade (tenant-scoped)
+      parameters: [ { $ref: '#/components/parameters/Tenant' }, { name: id, in: path, required: true, schema: { type: string } } ]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Trade' } } } }
+        '404': { $ref: '#/components/responses/Problem' }
+  /api/v1/trades/{id}/approvals:
+    post:
+      summary: Record one approval; the trade posts when none remain
+      parameters: [ { $ref: '#/components/parameters/Tenant' }, { name: id, in: path, required: true, schema: { type: string } } ]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Trade' } } } }
+        '409': { $ref: '#/components/responses/Problem' }
+  /admin/v1/routing:
+    get:
+      summary: Strangler routing mode per tenant
+      parameters: [ { $ref: '#/components/parameters/Admin' } ]
+      responses: { '200': { description: Map of tenant to NEW, SHADOW or LEGACY } }
+  /admin/v1/routing/{tenantId}:
+    put:
+      summary: Move a tenant between NEW, SHADOW and LEGACY (instant rollback)
+      parameters: [ { $ref: '#/components/parameters/Admin' }, { name: tenantId, in: path, required: true, schema: { type: string } } ]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { mode: { type: string, enum: [NEW, SHADOW, LEGACY] } } } } } }
+      responses: { '200': { description: Updated routing table } }
+components:
+  parameters:
+    Tenant: { name: X-Tenant-Id, in: header, required: true, schema: { type: string, pattern: '^[A-Za-z0-9_-]{1,64}$' } }
+    Admin: { name: X-Admin-Key, in: header, required: true, schema: { type: string } }
+  responses:
+    Problem: { description: RFC 7807 problem, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+  schemas:
+    TradeRequest:
+      type: object
+      required: [instrument, trader, notional]
+      properties:
+        instrument: { type: string, example: EQ, description: 'EQ, FX, FI, DER, CRYPTO' }
+        trader: { type: string, example: t1 }
+        notional: { type: number, example: 1500000 }
+        currency: { type: string, default: USD }
+    Trade:
+      type: object
+      properties:
+        id: { type: string }
+        tenantId: { type: string }
+        status: { type: string, enum: [PENDING_APPROVAL, POSTED] }
+        fee: { type: number }
+        route: { type: string }
+        approvalsRemaining: { type: integer }
+        deskCode: { type: string, nullable: true }
+        tax: { type: number, nullable: true }
+        servedBy: { type: string, enum: [NEW, LEGACY] }
+    Problem:
+      type: object
+      properties:
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        reasons: { type: array, items: { type: string } }

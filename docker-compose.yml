@@ -1,0 +1,17 @@
+# docker compose up --build   ->  http://localhost:8080   (Postgres-backed, 12-factor config)
+services:
+  db:
+    image: postgres:16-alpine
+    environment: { POSTGRES_DB: slice, POSTGRES_USER: app, POSTGRES_PASSWORD: app }
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U app -d slice"], interval: 5s, timeout: 3s, retries: 10 }
+  trade-slice:
+    build: .
+    depends_on: { db: { condition: service_healthy } }
+    ports: ["8080:8080"]
+    environment:
+      SPRING_PROFILES_ACTIVE: postgres
+      DB_URL: jdbc:postgresql://db:5432/slice
+      DB_USER: app
+      DB_PASSWORD: app
+      ADMIN_API_KEY: dev-admin-key
+    volumes: ["./out:/out"]
